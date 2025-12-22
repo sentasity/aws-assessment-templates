@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Sentasity ViewOnly + Snapshot Analysis Role
+  Deploys ViewOnly role with EBS Direct API access for accurate snapshot cost analysis.
+  MODES:
+  1. Standalone: Creates the role in THIS account only.
+  2. Organization: Creates role in payer account + StackSet for all member accounts.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Deployment Configuration"
+        Parameters:
+          - DeploymentScope
+          - SharedServicesAccountId
+      - Label:
+          default: "Organization Deployment (Payer Account Only)"
+        Parameters:
+          - TrustedAccessEnabled
+          - TargetOrgUnitIds
+    ParameterLabels:
+      DeploymentScope:
+        default: "Where to deploy this role"
+      SharedServicesAccountId:
+        default: "Sentasity Shared Services Account ID"
+      TrustedAccessEnabled:
+        default: "StackSets trusted access is enabled"
+      TargetOrgUnitIds:
+        default: "Root or OU IDs to deploy to (comma-separated)"
+
+Parameters:
+  DeploymentScope:
+    Type: String
+    Description: "Standalone = this account only | Organization = payer + all accounts in OU"
+    Default: Standalone
+    AllowedValues:
+      - Standalone
+      - Organization
+
+  SharedServicesAccountId:
+    Type: String
+    Description: "Sentasity Shared Services Account ID (do not change)"
+    Default: "886557787053"
+
+  TrustedAccessEnabled:
+    Type: String
+    Description: "Organization only: Confirm StackSets trusted access is enabled in your org"
+    Default: 'No'
+    AllowedValues:
+      - 'No'
+      - 'Yes'
+
+  TargetOrgUnitIds:
+    Type: String
+    Description: "Organization only: Comma-separated Root/OU IDs (e.g., r-xxxx or ou-xxxx-yyyyyyyy,ou-xxxx-zzzzzzzz)"
+    Default: ''
+    AllowedPattern: ^((r-[a-z0-9]+|ou-[a-z0-9]+-[a-z0-9]+)(,(r-[a-z0-9]+|ou-[a-z0-9]+-[a-z0-9]+))*)?$
+    ConstraintDescription: Must be empty or comma-separated Root IDs (r-xxxx) or OU IDs (ou-xxxx-yyyyyyyy)
+
+Conditions:
+  IsOrgDeployment: !And
+    - !Equals [!Ref DeploymentScope, 'Organization']
+    - !Equals [!Ref TrustedAccessEnabled, 'Yes']
+  # Create role in this account for BOTH standalone AND organization modes
+  ShouldCreateRole: !Or
+    - !Equals [!Ref DeploymentScope, 'Standalone']
+    - !And
+      - !Equals [!Ref DeploymentScope, 'Organization']
+      - !Equals [!Ref TrustedAccessEnabled, 'Yes']
+
+Rules:
+  ValidateOrgDeployment:
+    RuleCondition: !Equals [!Ref DeploymentScope, 'Organization']
+    Assertions:
+      - Assert: !Equals [!Ref TrustedAccessEnabled, 'Yes']
+        AssertDescription: "You must confirm StackSets trusted access is enabled before deploying to organization."
+      - Assert: !Not [!Equals [!Ref TargetOrgUnitIds, '']]
+        AssertDescription: "At least one Root/OU ID is required for Organization deployment."
+
+Resources:
+  # =========================================================
+  # ROLE: Created in THIS account (Standalone or Payer)
+  # =========================================================
+  SentasityViewOnlySnapshotRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldCreateRole
+    Properties:
+      RoleName: SentasityViewOnlySnapshotRole
+      Description: "Sentasity ViewOnly + Snapshot Analysis access"
+      MaxSessionDuration: 43200
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${SharedServicesAccountId}:root"
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/job-function/ViewOnlyAccess"
+        - "arn:aws:iam::aws:policy/SecurityAudit"
+      Policies:
+        - PolicyName: SnapshotAnalysis
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowEBSDirectAPIs
+                Effect: Allow
+                Action:
+                  - ebs:ListSnapshotBlocks
+                  - ebs:ListChangedBlocks
+                Resource: "*"
+              - Sid: AllowKMSDecryptForEBS
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringLike:
+                    kms:ViaService: ebs.*.amazonaws.com
+      Tags:
+        - Key: "ManagedBy"
+          Value: "Sentasity-CloudFormation"
+
+  # =========================================================
+  # STACKSET: Deploys role to member accounts (Org mode only)
+  # =========================================================
+  SentasityStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Condition: IsOrgDeployment
+    Properties:
+      StackSetName: "Sentasity-ViewOnlySnapshot-Role"
+      Description: "Deploys Sentasity ViewOnly+Snapshot role to member accounts"
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment:
+        Enabled: true
+        RetainStacksOnAccountRemoval: false
+      Capabilities:
+        - CAPABILITY_NAMED_IAM
+      OperationPreferences:
+        MaxConcurrentPercentage: 10
+        FailureTolerancePercentage: 5
+        RegionConcurrencyType: PARALLEL
+      Parameters:
+        - ParameterKey: TrustedAccountId
+          ParameterValue: !Ref SharedServicesAccountId
+      StackInstancesGroup:
+        - DeploymentTargets:
+            OrganizationalUnitIds: !Split [',', !Ref TargetOrgUnitIds]
+          Regions:
+            - "us-east-1"
+      TemplateBody: |
+        AWSTemplateFormatVersion: '2010-09-09'
+        Description: "Sentasity ViewOnly + Snapshot Analysis Role (Member Account)"
+        Parameters:
+          TrustedAccountId:
+            Type: String
+        Resources:
+          SentasityViewOnlySnapshotRole:
+            Type: AWS::IAM::Role
+            Properties:
+              RoleName: SentasityViewOnlySnapshotRole
+              Description: "Sentasity ViewOnly + Snapshot Analysis access"
+              MaxSessionDuration: 43200
+              AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                      AWS: !Sub "arn:aws:iam::${TrustedAccountId}:root"
+                    Action: sts:AssumeRole
+              ManagedPolicyArns:
+                - "arn:aws:iam::aws:policy/job-function/ViewOnlyAccess"
+                - "arn:aws:iam::aws:policy/SecurityAudit"
+              Policies:
+                - PolicyName: SnapshotAnalysis
+                  PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Sid: AllowEBSDirectAPIs
+                        Effect: Allow
+                        Action:
+                          - ebs:ListSnapshotBlocks
+                          - ebs:ListChangedBlocks
+                        Resource: "*"
+                      - Sid: AllowKMSDecryptForEBS
+                        Effect: Allow
+                        Action:
+                          - kms:Decrypt
+                        Resource: "*"
+                        Condition:
+                          StringLike:
+                            kms:ViaService: ebs.*.amazonaws.com
+
+Outputs:
+  RoleArn:
+    Condition: ShouldCreateRole
+    Value: !GetAtt SentasityViewOnlySnapshotRole.Arn
+    Description: "Role ARN for Switch Role"
+
+  StackSetId:
+    Condition: IsOrgDeployment
+    Value: !Ref SentasityStackSet
+    Description: "StackSet ID"
