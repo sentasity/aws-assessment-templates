@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: |
   Sentasity ViewOnly + Snapshot Analysis Role
-  Deploys ViewOnly role with EBS Direct API access for accurate snapshot cost analysis.
+  Deploys ViewOnly role with EBS Direct API access for cost optimization, security scanning, and accurate snapshot analysis.
   MODES:
   1. Standalone: Creates the role in THIS account only.
   2. Organization: Creates role in payer account + StackSet for all member accounts.
@@ -100,6 +100,71 @@ Resources:
         - "arn:aws:iam::aws:policy/job-function/ViewOnlyAccess"
         - "arn:aws:iam::aws:policy/SecurityAudit"
       Policies:
+        - PolicyName: SecurityScanReadOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowAdditionalSecurityReads
+                Effect: Allow
+                Action:
+                  - "account:Get*"
+                  - "appstream:Describe*"
+                  - "appstream:List*"
+                  - "backup:List*"
+                  - "bedrock:List*"
+                  - "bedrock:Get*"
+                  - "cloudtrail:GetInsightSelectors"
+                  - "codeartifact:List*"
+                  - "codebuild:BatchGet*"
+                  - "codebuild:ListReportGroups"
+                  - "cognito-idp:GetUserPoolMfaConfig"
+                  - "dlm:Get*"
+                  - "drs:Describe*"
+                  - "ds:Get*"
+                  - "ds:Describe*"
+                  - "ds:List*"
+                  - "dynamodb:GetResourcePolicy"
+                  - "ec2:GetEbsEncryptionByDefault"
+                  - "ec2:GetSnapshotBlockPublicAccessState"
+                  - "ec2:GetInstanceMetadataDefaults"
+                  - "ecr:Describe*"
+                  - "ecr:GetRegistryScanningConfiguration"
+                  - "elasticfilesystem:DescribeBackupPolicy"
+                  - "glue:GetConnections"
+                  - "glue:GetSecurityConfiguration*"
+                  - "glue:SearchTables"
+                  - "lambda:GetFunction*"
+                  - "logs:FilterLogEvents"
+                  - "lightsail:GetRelationalDatabases"
+                  - "macie2:GetMacieSession"
+                  - "macie2:GetAutomatedDiscoveryConfiguration"
+                  - "s3:GetAccountPublicAccessBlock"
+                  - "shield:DescribeProtection"
+                  - "shield:GetSubscriptionState"
+                  - "securityhub:BatchImportFindings"
+                  - "securityhub:GetFindings"
+                  - "servicecatalog:Describe*"
+                  - "servicecatalog:List*"
+                  - "ssm:GetDocument"
+                  - "ssm-incidents:List*"
+                  - "states:ListTagsForResource"
+                  - "support:Describe*"
+                  - "tag:GetTagKeys"
+                  - "wellarchitected:List*"
+                Resource: "*"
+              - Sid: AllowAPIGatewayReadOnly
+                Effect: Allow
+                Action:
+                  - "apigateway:GET"
+                Resource:
+                  - "arn:*:apigateway:*::/restapis/*"
+                  - "arn:*:apigateway:*::/apis/*"
+        # ---------------------------------------------------------------
+        # Snapshot Analysis: Required for accurate EBS snapshot sizing.
+        # EBS Direct APIs return block-level metadata only (block counts),
+        # not actual data. KMS decrypt is restricted to EBS service calls
+        # and cannot be used to read snapshot contents or other secrets.
+        # ---------------------------------------------------------------
         - PolicyName: SnapshotAnalysis
           PolicyDocument:
             Version: '2012-10-17'
@@ -173,6 +238,69 @@ Resources:
                 - "arn:aws:iam::aws:policy/job-function/ViewOnlyAccess"
                 - "arn:aws:iam::aws:policy/SecurityAudit"
               Policies:
+                - PolicyName: SecurityScanReadOnly
+                  PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Sid: AllowAdditionalSecurityReads
+                        Effect: Allow
+                        Action:
+                          - "account:Get*"
+                          - "appstream:Describe*"
+                          - "appstream:List*"
+                          - "backup:List*"
+                          - "bedrock:List*"
+                          - "bedrock:Get*"
+                          - "cloudtrail:GetInsightSelectors"
+                          - "codeartifact:List*"
+                          - "codebuild:BatchGet*"
+                          - "codebuild:ListReportGroups"
+                          - "cognito-idp:GetUserPoolMfaConfig"
+                          - "dlm:Get*"
+                          - "drs:Describe*"
+                          - "ds:Get*"
+                          - "ds:Describe*"
+                          - "ds:List*"
+                          - "dynamodb:GetResourcePolicy"
+                          - "ec2:GetEbsEncryptionByDefault"
+                          - "ec2:GetSnapshotBlockPublicAccessState"
+                          - "ec2:GetInstanceMetadataDefaults"
+                          - "ecr:Describe*"
+                          - "ecr:GetRegistryScanningConfiguration"
+                          - "elasticfilesystem:DescribeBackupPolicy"
+                          - "glue:GetConnections"
+                          - "glue:GetSecurityConfiguration*"
+                          - "glue:SearchTables"
+                          - "lambda:GetFunction*"
+                          - "logs:FilterLogEvents"
+                          - "lightsail:GetRelationalDatabases"
+                          - "macie2:GetMacieSession"
+                          - "macie2:GetAutomatedDiscoveryConfiguration"
+                          - "s3:GetAccountPublicAccessBlock"
+                          - "shield:DescribeProtection"
+                          - "shield:GetSubscriptionState"
+                          - "securityhub:BatchImportFindings"
+                          - "securityhub:GetFindings"
+                          - "servicecatalog:Describe*"
+                          - "servicecatalog:List*"
+                          - "ssm:GetDocument"
+                          - "ssm-incidents:List*"
+                          - "states:ListTagsForResource"
+                          - "support:Describe*"
+                          - "tag:GetTagKeys"
+                          - "wellarchitected:List*"
+                        Resource: "*"
+                      - Sid: AllowAPIGatewayReadOnly
+                        Effect: Allow
+                        Action:
+                          - "apigateway:GET"
+                        Resource:
+                          - "arn:*:apigateway:*::/restapis/*"
+                          - "arn:*:apigateway:*::/apis/*"
+                # Snapshot Analysis: Required for accurate EBS snapshot sizing.
+                # EBS Direct APIs return block-level metadata only (block counts),
+                # not actual data. KMS decrypt is restricted to EBS service calls
+                # and cannot be used to read snapshot contents or other secrets.
                 - PolicyName: SnapshotAnalysis
                   PolicyDocument:
                     Version: '2012-10-17'
