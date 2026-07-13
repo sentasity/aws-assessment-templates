@@ -1,100 +1,53 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: |
-  Sentasity ViewOnly + Snapshot Analysis Role
-  Deploys ViewOnly role with EBS Direct API access for cost optimization, security scanning, and accurate snapshot analysis.
-  MODES:
-  1. Standalone: Creates the role in THIS account only.
-  2. Organization: Creates role in payer account + StackSet for all member accounts.
+Description: >
+  Sentasity Access Roles — Organization Deployment.
+  Creates IAM roles granting Sentasity read access in this management account
+  and deploys the same roles to all member accounts via a SERVICE_MANAGED StackSet.
 
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: "Deployment Configuration"
+          default: "Organization Configuration"
         Parameters:
-          - DeploymentScope
-          - SharedServicesAccountId
-      - Label:
-          default: "Organization Deployment (Payer Account Only)"
-        Parameters:
-          - TrustedAccessEnabled
-          - TargetOrgUnitIds
+          - OrganizationRootId
     ParameterLabels:
-      DeploymentScope:
-        default: "Where to deploy this role"
-      SharedServicesAccountId:
-        default: "Sentasity Shared Services Account ID"
-      TrustedAccessEnabled:
-        default: "StackSets trusted access is enabled"
-      TargetOrgUnitIds:
-        default: "Root or OU IDs to deploy to (comma-separated)"
+      OrganizationRootId:
+        default: "Organization Root ID"
 
 Parameters:
-  DeploymentScope:
+  OrganizationRootId:
     Type: String
-    Description: "Standalone = this account only | Organization = payer + all accounts in OU"
-    Default: Standalone
-    AllowedValues:
-      - Standalone
-      - Organization
-
-  SharedServicesAccountId:
-    Type: String
-    Description: "Sentasity Shared Services Account ID (do not change)"
-    Default: "886557787053"
-
-  TrustedAccessEnabled:
-    Type: String
-    Description: "Organization only: Confirm StackSets trusted access is enabled in your org"
-    Default: 'No'
-    AllowedValues:
-      - 'No'
-      - 'Yes'
-
-  TargetOrgUnitIds:
-    Type: String
-    Description: "Organization only: Comma-separated Root/OU IDs (e.g., r-xxxx or ou-xxxx-yyyyyyyy,ou-xxxx-zzzzzzzz)"
-    Default: ''
-    AllowedPattern: ^((r-[a-z0-9]+|ou-[a-z0-9]+-[a-z0-9]+)(,(r-[a-z0-9]+|ou-[a-z0-9]+-[a-z0-9]+))*)?$
-    ConstraintDescription: Must be empty or comma-separated Root IDs (r-xxxx) or OU IDs (ou-xxxx-yyyyyyyy)
-
-Conditions:
-  IsOrgDeployment: !And
-    - !Equals [!Ref DeploymentScope, 'Organization']
-    - !Equals [!Ref TrustedAccessEnabled, 'Yes']
-  # Create role in this account for BOTH standalone AND organization modes
-  ShouldCreateRole: !Or
-    - !Equals [!Ref DeploymentScope, 'Standalone']
-    - !And
-      - !Equals [!Ref DeploymentScope, 'Organization']
-      - !Equals [!Ref TrustedAccessEnabled, 'Yes']
+    AllowedPattern: "^r-[a-z0-9]+$"
+    ConstraintDescription: "Must be a Root ID starting with r- (e.g., r-xxxx)"
+    Description: >
+      The AWS Organizations Root ID to deploy roles to all member accounts.
+      Find this in the AWS Organizations console (e.g., r-xxxx).
 
 Rules:
-  ValidateOrgDeployment:
-    RuleCondition: !Equals [!Ref DeploymentScope, 'Organization']
+  ValidateOrgRootId:
     Assertions:
-      - Assert: !Equals [!Ref TrustedAccessEnabled, 'Yes']
-        AssertDescription: "You must confirm StackSets trusted access is enabled before deploying to organization."
-      - Assert: !Not [!Equals [!Ref TargetOrgUnitIds, '']]
-        AssertDescription: "At least one Root/OU ID is required for Organization deployment."
+      - Assert: !Not [!Equals [!Ref OrganizationRootId, ""]]
+        AssertDescription: "OrganizationRootId must not be empty"
 
 Resources:
+
   # =========================================================
-  # ROLE: Created in THIS account (Standalone or Payer)
+  # MANAGEMENT ACCOUNT ROLES
   # =========================================================
-  SentasityViewOnlySnapshotRole:
+
+  SentasityViewOnlySecurityRole:
     Type: AWS::IAM::Role
-    Condition: ShouldCreateRole
     Properties:
-      RoleName: SentasityViewOnlySnapshotRole
-      Description: "Sentasity ViewOnly + Snapshot Analysis access"
+      RoleName: SentasityViewOnlySecurityRole
+      Description: "Sentasity ViewOnly access for cost optimization and security scanning"
       MaxSessionDuration: 43200
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub "arn:aws:iam::${SharedServicesAccountId}:root"
+              AWS: "arn:aws:iam::886557787053:root"
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/job-function/ViewOnlyAccess"
@@ -159,47 +112,58 @@ Resources:
                 Resource:
                   - "arn:*:apigateway:*::/restapis/*"
                   - "arn:*:apigateway:*::/apis/*"
-        # ---------------------------------------------------------------
-        # Snapshot Analysis: Required for accurate EBS snapshot sizing.
-        # EBS Direct APIs return block-level metadata only (block counts),
-        # not actual data. KMS decrypt is restricted to EBS service calls
-        # and cannot be used to read snapshot contents or other secrets.
-        # ---------------------------------------------------------------
-        - PolicyName: SnapshotAnalysis
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: AllowEBSDirectAPIs
-                Effect: Allow
-                Action:
-                  - ebs:ListSnapshotBlocks
-                  - ebs:ListChangedBlocks
-                Resource: "*"
-              - Sid: AllowKMSDecryptForEBS
-                Effect: Allow
-                Action:
-                  - kms:Decrypt
-                Resource: "*"
-                Condition:
-                  StringLike:
-                    kms:ViaService: ebs.*.amazonaws.com
       Tags:
         - Key: "ManagedBy"
           Value: "Sentasity-CloudFormation"
+        - Key: "Purpose"
+          Value: "Cost optimization and security scanning"
+
+  SentasityReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SentasityReadOnlyRole
+      Description: "Sentasity ReadOnly role for cost data and CUR access"
+      MaxSessionDuration: 43200
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: "arn:aws:iam::886557787053:root"
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/ReadOnlyAccess"
+      Policies:
+        - PolicyName: SentasityCURDiscovery
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CURDiscovery
+                Effect: Allow
+                Action:
+                  - cur:DescribeReportDefinitions
+                  - bcm-data-exports:ListExports
+                  - bcm-data-exports:GetExport
+                Resource: "*"
+      Tags:
+        - Key: "ManagedBy"
+          Value: "Sentasity-CloudFormation"
+        - Key: "Purpose"
+          Value: "Cost and usage data access"
 
   # =========================================================
-  # STACKSET: Deploys role to member accounts (Org mode only)
+  # STACKSET: Deploys roles to member accounts (Org mode)
   # =========================================================
-  SentasityStackSet:
+  SentasityAccessStackSet:
     Type: AWS::CloudFormation::StackSet
-    Condition: IsOrgDeployment
     Properties:
-      StackSetName: "Sentasity-ViewOnlySnapshot-Role"
-      Description: "Deploys Sentasity ViewOnly+Snapshot role to member accounts"
+      StackSetName: "Sentasity-Access-Roles"
+      Description: "Deploys Sentasity access roles to all member accounts in the organization"
       PermissionModel: SERVICE_MANAGED
       AutoDeployment:
         Enabled: true
         RetainStacksOnAccountRemoval: false
+      CallAs: SELF
       Capabilities:
         - CAPABILITY_NAMED_IAM
       OperationPreferences:
@@ -208,24 +172,25 @@ Resources:
         RegionConcurrencyType: PARALLEL
       Parameters:
         - ParameterKey: TrustedAccountId
-          ParameterValue: !Ref SharedServicesAccountId
+          ParameterValue: "886557787053"
       StackInstancesGroup:
         - DeploymentTargets:
-            OrganizationalUnitIds: !Split [',', !Ref TargetOrgUnitIds]
+            OrganizationalUnitIds:
+              - !Ref OrganizationRootId
           Regions:
             - "us-east-1"
       TemplateBody: |
         AWSTemplateFormatVersion: '2010-09-09'
-        Description: "Sentasity ViewOnly + Snapshot Analysis Role (Member Account)"
+        Description: "Sentasity Access Roles (Member Account)"
         Parameters:
           TrustedAccountId:
             Type: String
         Resources:
-          SentasityViewOnlySnapshotRole:
+          SentasityViewOnlySecurityRole:
             Type: AWS::IAM::Role
             Properties:
-              RoleName: SentasityViewOnlySnapshotRole
-              Description: "Sentasity ViewOnly + Snapshot Analysis access"
+              RoleName: SentasityViewOnlySecurityRole
+              Description: "Sentasity ViewOnly access for cost optimization and security scanning"
               MaxSessionDuration: 43200
               AssumeRolePolicyDocument:
                 Version: '2012-10-17'
@@ -297,36 +262,60 @@ Resources:
                         Resource:
                           - "arn:*:apigateway:*::/restapis/*"
                           - "arn:*:apigateway:*::/apis/*"
-                # Snapshot Analysis: Required for accurate EBS snapshot sizing.
-                # EBS Direct APIs return block-level metadata only (block counts),
-                # not actual data. KMS decrypt is restricted to EBS service calls
-                # and cannot be used to read snapshot contents or other secrets.
-                - PolicyName: SnapshotAnalysis
+              Tags:
+                - Key: "ManagedBy"
+                  Value: "Sentasity-CloudFormation"
+                - Key: "Purpose"
+                  Value: "Cost optimization and security scanning"
+          SentasityReadOnlyRole:
+            Type: AWS::IAM::Role
+            Properties:
+              RoleName: SentasityReadOnlyRole
+              Description: "Sentasity ReadOnly role for cost data and CUR access"
+              MaxSessionDuration: 43200
+              AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Principal:
+                      AWS: !Sub "arn:aws:iam::${TrustedAccountId}:root"
+                    Action: sts:AssumeRole
+              ManagedPolicyArns:
+                - "arn:aws:iam::aws:policy/ReadOnlyAccess"
+              Policies:
+                - PolicyName: SentasityCURDiscovery
                   PolicyDocument:
                     Version: '2012-10-17'
                     Statement:
-                      - Sid: AllowEBSDirectAPIs
+                      - Sid: CURDiscovery
                         Effect: Allow
                         Action:
-                          - ebs:ListSnapshotBlocks
-                          - ebs:ListChangedBlocks
+                          - cur:DescribeReportDefinitions
+                          - bcm-data-exports:ListExports
+                          - bcm-data-exports:GetExport
                         Resource: "*"
-                      - Sid: AllowKMSDecryptForEBS
-                        Effect: Allow
-                        Action:
-                          - kms:Decrypt
-                        Resource: "*"
-                        Condition:
-                          StringLike:
-                            kms:ViaService: ebs.*.amazonaws.com
+              Tags:
+                - Key: "ManagedBy"
+                  Value: "Sentasity-CloudFormation"
+                - Key: "Purpose"
+                  Value: "Cost and usage data access"
+        Outputs:
+          ViewOnlyRoleArn:
+            Description: "ARN of the Sentasity ViewOnly security scanning role"
+            Value: !GetAtt SentasityViewOnlySecurityRole.Arn
+          ReadOnlyRoleArn:
+            Description: "ARN of the Sentasity ReadOnly cost data role"
+            Value: !GetAtt SentasityReadOnlyRole.Arn
 
 Outputs:
-  RoleArn:
-    Condition: ShouldCreateRole
-    Value: !GetAtt SentasityViewOnlySnapshotRole.Arn
-    Description: "Role ARN for Switch Role"
+  ViewOnlyRoleArn:
+    Description: "ARN of the Sentasity ViewOnly security scanning role (management account)"
+    Value: !GetAtt SentasityViewOnlySecurityRole.Arn
+
+  ReadOnlyRoleArn:
+    Description: "ARN of the Sentasity ReadOnly cost data role (management account)"
+    Value: !GetAtt SentasityReadOnlyRole.Arn
 
   StackSetId:
-    Condition: IsOrgDeployment
-    Value: !Ref SentasityStackSet
-    Description: "StackSet ID"
+    Description: "ID of the StackSet deploying roles to member accounts"
+    Value: !Ref SentasityAccessStackSet
