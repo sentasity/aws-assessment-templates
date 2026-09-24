@@ -166,9 +166,15 @@ Resources:
       CallAs: SELF
       Capabilities:
         - CAPABILITY_NAMED_IAM
+      # Every account gets its own attempt. With a low tolerance, one account
+      # blocked by an SCP fails the whole operation, and CloudFormation then rolls
+      # this stack back, deleting the stack set and the roles that did deploy.
+      # A blocked account instead shows as FAILED on its stack instance, which
+      # the onboarding wizard reads per account and links to the fix guide.
       OperationPreferences:
-        MaxConcurrentPercentage: 10
-        FailureTolerancePercentage: 5
+        MaxConcurrentPercentage: 100
+        FailureTolerancePercentage: 100
+        ConcurrencyMode: SOFT_FAILURE_TOLERANCE
         RegionConcurrencyType: PARALLEL
       Parameters:
         - ParameterKey: TrustedAccountId

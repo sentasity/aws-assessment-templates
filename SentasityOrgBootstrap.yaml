@@ -98,13 +98,23 @@ Resources:
               - "cloudformation:DescribeOrganizationsAccess"
             Resource: "*"
           # ActivateOrganizationsAccess creates/reads the StackSets service-linked
-          # role; without these IAM perms on the specific SLR ARN the API fails
-          # with AccessDenied on iam:GetRole.
-          - Sid: AllowStackSetsServiceLinkedRole
+          # role. GetRole must NOT be scoped to the SLR's full-path ARN: when the
+          # SLR does not exist yet (any fresh org), IAM authorizes GetRole against
+          # the bare-name ARN (role/AWSServiceRoleForCloudFormationStackSetsOrgAdmin),
+          # which a /aws-service-role/-scoped resource never matches (#711).
+          - Sid: AllowStackSetsGetRole
             Effect: Allow
-            Action:
-              - "iam:GetRole"
-              - "iam:CreateServiceLinkedRole"
+            Action: "iam:GetRole"
+            Resource: "*"
+          # No iam:AWSServiceName condition here: ActivateOrganizationsAccess
+          # authorizes the SLR creation internally, and that synthesized request
+          # does not carry the parameter-derived condition key, so any String
+          # condition on it fails closed (#711). The Resource ARN below is the
+          # scope — it pins creation to this one role, whose path already embeds
+          # the stacksets service principal.
+          - Sid: AllowStackSetsCreateSLR
+            Effect: Allow
+            Action: "iam:CreateServiceLinkedRole"
             Resource: "arn:aws:iam::*:role/aws-service-role/stacksets.cloudformation.amazonaws.com/AWSServiceRoleForCloudFormationStackSetsOrgAdmin"
 
   # ──────────────────────────────────────────────────────────────────────────
