@@ -6,6 +6,8 @@ Metadata:
     ParameterLabels:
       SentasityExternalId:
         default: "Sentasity External ID"
+      SentasityAccountId:
+        default: "Sentasity account ID"
 
 Parameters:
   SentasityExternalId:
@@ -13,6 +15,22 @@ Parameters:
     AllowedPattern: '^[\w+=,.@:\/-]{2,1224}$'
     ConstraintDescription: "2 to 1224 letters, digits, or + = , . @ : / - _"
     Description: "External ID from Sentasity. The Sentasity quick-create link fills it in."
+  SentasityAccountId:
+    Type: String
+    Default: ""
+    AllowedPattern: '^(\d{12})?$'
+    ConstraintDescription: "Blank, or a 12-digit AWS account ID"
+    Description: "The AWS account this link is for. The Sentasity quick-create link fills it in; when set, CloudFormation refuses to create the stack in any other account."
+
+Rules:
+  # A Sentasity quick-create link names the account it is for. Opened while
+  # signed in to another account, the stack is refused before anything is
+  # created. Blank checks nothing.
+  MustBeTheLinkedAccount:
+    RuleCondition: !Not [!Equals [!Ref SentasityAccountId, ""]]
+    Assertions:
+      - Assert: !Equals [!Ref SentasityAccountId, !Ref "AWS::AccountId"]
+        AssertDescription: "This link is for the AWS account in Sentasity account ID, not this one. Sign in to that account and open the link again."
 
 Resources:
 
