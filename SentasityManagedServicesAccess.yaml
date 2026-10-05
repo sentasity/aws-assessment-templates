@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Sentasity PowerUser and optional Admin roles for troubleshooting and remediation."
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterLabels:
+      SentasityExternalId:
+        default: "Sentasity External ID"
+
+Parameters:
+  EnableAdminRole:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: "Also create SentasityAdminRole (AdministratorAccess)."
+
+  SentasityExternalId:
+    Type: String
+    Default: ""
+    AllowedPattern: '^$|^[\w+=,.@:\/-]{2,1224}$'
+    ConstraintDescription: "2 to 1224 letters, digits, or + = , . @ : / - _"
+    Description: "External ID from Sentasity. Leave blank if you were not given one."
+
+Conditions:
+  CreateAdmin: !Equals [!Ref EnableAdminRole, 'true']
+  HasExternalId: !Not [!Equals [!Ref SentasityExternalId, ""]]
+
+Resources:
+  SentasityPowerUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SentasityPowerUserRole
+      Description: "Sentasity PowerUser role for troubleshooting and fixes"
+      MaxSessionDuration: 43200
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: "arn:aws:iam::886557787053:root"
+            Action: sts:AssumeRole
+            Condition: !If
+              - HasExternalId
+              - StringEquals:
+                  sts:ExternalId: !Ref SentasityExternalId
+              - !Ref AWS::NoValue
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/PowerUserAccess"
+      Tags:
+        - Key: "ManagedBy"
+          Value: "Sentasity-CloudFormation"
+        - Key: "Purpose"
+          Value: "Troubleshooting and remediation"
+
+  SentasityAdminRole:
+    Type: AWS::IAM::Role
+    Condition: CreateAdmin
+    Properties:
+      RoleName: SentasityAdminRole
+      Description: "Sentasity Admin role for full access when needed"
+      MaxSessionDuration: 43200
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: "arn:aws:iam::886557787053:root"
+            Action: sts:AssumeRole
+            Condition: !If
+              - HasExternalId
+              - StringEquals:
+                  sts:ExternalId: !Ref SentasityExternalId
+              - !Ref AWS::NoValue
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+      Tags:
+        - Key: "ManagedBy"
+          Value: "Sentasity-CloudFormation"
+        - Key: "Purpose"
+          Value: "Full administrative access"
+
+Outputs:
+  # Bump on every template change; the daily stack sync reads it.
+  TemplateVersion:
+    Description: "Template version"
+    Value: "3"
+
+  PowerUserRoleArn:
+    Description: "PowerUser role ARN"
+    Value: !GetAtt SentasityPowerUserRole.Arn
+
+  AdminRoleArn:
+    Condition: CreateAdmin
+    Description: "Admin role ARN"
+    Value: !GetAtt SentasityAdminRole.Arn

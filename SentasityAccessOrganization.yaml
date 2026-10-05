@@ -1,8 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >
-  Sentasity Access Roles — Organization Deployment.
-  Creates IAM roles granting Sentasity read access in this management account
-  and deploys the same roles to all member accounts via a SERVICE_MANAGED StackSet.
+Description: "Sentasity read-only access roles for this management account and, via StackSet, every member account."
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -11,18 +8,24 @@ Metadata:
           default: "Organization Configuration"
         Parameters:
           - OrganizationRootId
+          - SentasityExternalId
     ParameterLabels:
       OrganizationRootId:
         default: "Organization Root ID"
+      SentasityExternalId:
+        default: "Sentasity External ID"
 
 Parameters:
   OrganizationRootId:
     Type: String
     AllowedPattern: "^r-[a-z0-9]+$"
     ConstraintDescription: "Must be a Root ID starting with r- (e.g., r-xxxx)"
-    Description: >
-      The AWS Organizations Root ID to deploy roles to all member accounts.
-      Find this in the AWS Organizations console (e.g., r-xxxx).
+    Description: "Your organization root ID (r-xxxx), from the AWS Organizations console."
+  SentasityExternalId:
+    Type: String
+    AllowedPattern: '^[\w+=,.@:\/-]{2,1224}$'
+    ConstraintDescription: "2 to 1224 letters, digits, or + = , . @ : / - _"
+    Description: "External ID from Sentasity. The Sentasity quick-create link fills it in."
 
 Rules:
   ValidateOrgRootId:
@@ -32,9 +35,6 @@ Rules:
 
 Resources:
 
-  # =========================================================
-  # MANAGEMENT ACCOUNT ROLES
-  # =========================================================
 
   SentasityViewOnlySecurityRole:
     Type: AWS::IAM::Role
@@ -49,6 +49,9 @@ Resources:
             Principal:
               AWS: "arn:aws:iam::886557787053:root"
             Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref SentasityExternalId
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/job-function/ViewOnlyAccess"
         - "arn:aws:iam::aws:policy/SecurityAudit"
@@ -61,8 +64,11 @@ Resources:
                 Effect: Allow
                 Action:
                   - "account:Get*"
+                  - "amplify:ListApps"
+                  - "amplify:ListBranches"
                   - "appstream:Describe*"
                   - "appstream:List*"
+                  - "backup:Get*"
                   - "backup:List*"
                   - "bedrock:List*"
                   - "bedrock:Get*"
@@ -84,9 +90,12 @@ Resources:
                   - "ecr:GetRegistryScanningConfiguration"
                   - "elasticfilesystem:DescribeBackupPolicy"
                   - "glue:GetConnections"
+                  - "glue:GetMLTransforms"
                   - "glue:GetSecurityConfiguration*"
                   - "glue:SearchTables"
+                  - "inspector2:BatchGetFindingDetails"
                   - "lambda:GetFunction*"
+                  - "lambda:GetLayerVersion"
                   - "logs:FilterLogEvents"
                   - "lightsail:GetRelationalDatabases"
                   - "macie2:GetMacieSession"
@@ -94,7 +103,6 @@ Resources:
                   - "s3:GetAccountPublicAccessBlock"
                   - "shield:DescribeProtection"
                   - "shield:GetSubscriptionState"
-                  - "securityhub:BatchImportFindings"
                   - "securityhub:GetFindings"
                   - "servicecatalog:Describe*"
                   - "servicecatalog:List*"
@@ -112,6 +120,8 @@ Resources:
                 Resource:
                   - "arn:*:apigateway:*::/restapis/*"
                   - "arn:*:apigateway:*::/apis/*"
+                  - "arn:*:apigateway:*::/domainnames"
+                  - "arn:*:apigateway:*::/domainnames/*"
       Tags:
         - Key: "ManagedBy"
           Value: "Sentasity-CloudFormation"
@@ -131,34 +141,119 @@ Resources:
             Principal:
               AWS: "arn:aws:iam::886557787053:root"
             Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref SentasityExternalId
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/ReadOnlyAccess"
       Policies:
-        - PolicyName: SentasityCURDiscovery
+        - PolicyName: SentasityBillingReads
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Sid: CURDiscovery
+              # Wildcard reads so new billing APIs work before ReadOnlyAccess adds them.
+              - Sid: BillingReads
                 Effect: Allow
                 Action:
-                  - cur:DescribeReportDefinitions
-                  - bcm-data-exports:ListExports
-                  - bcm-data-exports:GetExport
+                  - "ce:Get*"
+                  - "ce:List*"
+                  - "ce:Describe*"
+                  - "billing:Get*"
+                  - "billing:List*"
+                  - "bcm-data-exports:Get*"
+                  - "bcm-data-exports:List*"
+                  - "cur:Describe*"
+                  - "cur:Get*"
+                  - "cost-optimization-hub:Get*"
+                  - "cost-optimization-hub:List*"
+                  - "compute-optimizer:Get*"
+                  - "compute-optimizer:Describe*"
+                  - "billingconductor:Get*"
+                  - "billingconductor:List*"
+                  - "freetier:Get*"
+                  - "freetier:List*"
+                  - "invoicing:Get*"
+                  - "invoicing:List*"
+                  - "bcm-recommended-actions:List*"
+                  - "bcm-dashboards:Get*"
+                  - "bcm-dashboards:List*"
+                  - "bcm-pricing-calculator:Get*"
+                  - "bcm-pricing-calculator:List*"
+                  - "consolidatedbilling:Get*"
+                  - "consolidatedbilling:List*"
+                  - "budgets:View*"
+                  - "budgets:Describe*"
+                  - "trustedadvisor:Get*"
+                  - "trustedadvisor:List*"
+                  - "sustainability:Get*"
+                  - "savingsplans:Describe*"
+                  - "savingsplans:List*"
+                  - "organizations:Describe*"
+                  - "organizations:List*"
+                  - "resource-explorer-2:Get*"
+                  - "resource-explorer-2:List*"
+                  - "resource-explorer-2:Search"
                 Resource: "*"
+        - PolicyName: SentasityDenyDataReads
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # s3:GetObject stays allowed: CUR bucket names vary per customer.
+              - Sid: DenyDataReads
+                Effect: Deny
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                  - "ssm:GetParameter"
+                  - "ssm:GetParameters"
+                  - "ssm:GetParametersByPath"
+                  - "ssm:GetParameterHistory"
+                  - "dynamodb:GetItem"
+                  - "dynamodb:BatchGetItem"
+                  - "dynamodb:Query"
+                  - "dynamodb:Scan"
+                  - "dynamodb:PartiQLSelect"
+                  - "dynamodb:GetRecords"
+                  - "sqs:ReceiveMessage"
+                  - "kinesis:GetRecords"
+                  - "kinesis:GetShardIterator"
+                  - "ec2:GetPasswordData"
+                  - "ec2:GetConsoleOutput"
+                  - "ec2:GetConsoleScreenshot"
+                  - "codecommit:GetFile"
+                  - "codecommit:GetBlob"
+                  - "ecr:BatchGetImage"
+                  - "ecr:GetDownloadUrlForLayer"
+                  - "lambda:GetFunction"
+                Resource: "*"
+        - PolicyName: SentasityResourceExplorerInventory
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Create-only: turns on Resource Explorer, like the console's Turn on button.
+              - Sid: ResourceExplorerInventory
+                Effect: Allow
+                Action:
+                  - resource-explorer-2:CreateIndex
+                  - resource-explorer-2:CreateView
+                Resource: "*"
+              - Sid: ResourceExplorerServiceLinkedRole
+                Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: "arn:aws:iam::*:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+                Condition:
+                  StringEquals:
+                    iam:AWSServiceName: resource-explorer-2.amazonaws.com
       Tags:
         - Key: "ManagedBy"
           Value: "Sentasity-CloudFormation"
         - Key: "Purpose"
           Value: "Cost and usage data access"
 
-  # =========================================================
-  # STACKSET: Deploys roles to member accounts (Org mode)
-  # =========================================================
   SentasityAccessStackSet:
     Type: AWS::CloudFormation::StackSet
     Properties:
       StackSetName: "Sentasity-Access-Roles"
-      Description: "Deploys Sentasity access roles to all member accounts in the organization"
+      Description: "Sentasity access roles for member accounts"
       PermissionModel: SERVICE_MANAGED
       AutoDeployment:
         Enabled: true
@@ -166,11 +261,7 @@ Resources:
       CallAs: SELF
       Capabilities:
         - CAPABILITY_NAMED_IAM
-      # Every account gets its own attempt. With a low tolerance, one account
-      # blocked by an SCP fails the whole operation, and CloudFormation then rolls
-      # this stack back, deleting the stack set and the roles that did deploy.
-      # A blocked account instead shows as FAILED on its stack instance, which
-      # the onboarding wizard reads per account and links to the fix guide.
+      # 100% tolerance: one SCP-blocked account must not roll back the whole stack.
       OperationPreferences:
         MaxConcurrentPercentage: 100
         FailureTolerancePercentage: 100
@@ -179,6 +270,8 @@ Resources:
       Parameters:
         - ParameterKey: TrustedAccountId
           ParameterValue: "886557787053"
+        - ParameterKey: SentasityExternalId
+          ParameterValue: !Ref SentasityExternalId
       StackInstancesGroup:
         - DeploymentTargets:
             OrganizationalUnitIds:
@@ -190,6 +283,8 @@ Resources:
         Description: "Sentasity Access Roles (Member Account)"
         Parameters:
           TrustedAccountId:
+            Type: String
+          SentasityExternalId:
             Type: String
         Resources:
           SentasityViewOnlySecurityRole:
@@ -205,6 +300,9 @@ Resources:
                     Principal:
                       AWS: !Sub "arn:aws:iam::${TrustedAccountId}:root"
                     Action: sts:AssumeRole
+                    Condition:
+                      StringEquals:
+                        sts:ExternalId: !Ref SentasityExternalId
               ManagedPolicyArns:
                 - "arn:aws:iam::aws:policy/job-function/ViewOnlyAccess"
                 - "arn:aws:iam::aws:policy/SecurityAudit"
@@ -217,8 +315,11 @@ Resources:
                         Effect: Allow
                         Action:
                           - "account:Get*"
+                          - "amplify:ListApps"
+                          - "amplify:ListBranches"
                           - "appstream:Describe*"
                           - "appstream:List*"
+                          - "backup:Get*"
                           - "backup:List*"
                           - "bedrock:List*"
                           - "bedrock:Get*"
@@ -240,9 +341,12 @@ Resources:
                           - "ecr:GetRegistryScanningConfiguration"
                           - "elasticfilesystem:DescribeBackupPolicy"
                           - "glue:GetConnections"
+                          - "glue:GetMLTransforms"
                           - "glue:GetSecurityConfiguration*"
                           - "glue:SearchTables"
+                          - "inspector2:BatchGetFindingDetails"
                           - "lambda:GetFunction*"
+                          - "lambda:GetLayerVersion"
                           - "logs:FilterLogEvents"
                           - "lightsail:GetRelationalDatabases"
                           - "macie2:GetMacieSession"
@@ -250,7 +354,6 @@ Resources:
                           - "s3:GetAccountPublicAccessBlock"
                           - "shield:DescribeProtection"
                           - "shield:GetSubscriptionState"
-                          - "securityhub:BatchImportFindings"
                           - "securityhub:GetFindings"
                           - "servicecatalog:Describe*"
                           - "servicecatalog:List*"
@@ -268,6 +371,8 @@ Resources:
                         Resource:
                           - "arn:*:apigateway:*::/restapis/*"
                           - "arn:*:apigateway:*::/apis/*"
+                          - "arn:*:apigateway:*::/domainnames"
+                          - "arn:*:apigateway:*::/domainnames/*"
               Tags:
                 - Key: "ManagedBy"
                   Value: "Sentasity-CloudFormation"
@@ -286,20 +391,108 @@ Resources:
                     Principal:
                       AWS: !Sub "arn:aws:iam::${TrustedAccountId}:root"
                     Action: sts:AssumeRole
+                    Condition:
+                      StringEquals:
+                        sts:ExternalId: !Ref SentasityExternalId
               ManagedPolicyArns:
                 - "arn:aws:iam::aws:policy/ReadOnlyAccess"
               Policies:
-                - PolicyName: SentasityCURDiscovery
+                - PolicyName: SentasityBillingReads
                   PolicyDocument:
                     Version: '2012-10-17'
                     Statement:
-                      - Sid: CURDiscovery
+                      # Wildcard reads so new billing APIs work before ReadOnlyAccess adds them.
+                      - Sid: BillingReads
                         Effect: Allow
                         Action:
-                          - cur:DescribeReportDefinitions
-                          - bcm-data-exports:ListExports
-                          - bcm-data-exports:GetExport
+                          - "ce:Get*"
+                          - "ce:List*"
+                          - "ce:Describe*"
+                          - "billing:Get*"
+                          - "billing:List*"
+                          - "bcm-data-exports:Get*"
+                          - "bcm-data-exports:List*"
+                          - "cur:Describe*"
+                          - "cur:Get*"
+                          - "cost-optimization-hub:Get*"
+                          - "cost-optimization-hub:List*"
+                          - "compute-optimizer:Get*"
+                          - "compute-optimizer:Describe*"
+                          - "billingconductor:Get*"
+                          - "billingconductor:List*"
+                          - "freetier:Get*"
+                          - "freetier:List*"
+                          - "invoicing:Get*"
+                          - "invoicing:List*"
+                          - "bcm-recommended-actions:List*"
+                          - "bcm-dashboards:Get*"
+                          - "bcm-dashboards:List*"
+                          - "bcm-pricing-calculator:Get*"
+                          - "bcm-pricing-calculator:List*"
+                          - "consolidatedbilling:Get*"
+                          - "consolidatedbilling:List*"
+                          - "budgets:View*"
+                          - "budgets:Describe*"
+                          - "trustedadvisor:Get*"
+                          - "trustedadvisor:List*"
+                          - "sustainability:Get*"
+                          - "savingsplans:Describe*"
+                          - "savingsplans:List*"
+                          - "organizations:Describe*"
+                          - "organizations:List*"
+                          - "resource-explorer-2:Get*"
+                          - "resource-explorer-2:List*"
+                          - "resource-explorer-2:Search"
                         Resource: "*"
+                - PolicyName: SentasityDenyDataReads
+                  PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      # s3:GetObject stays allowed: CUR bucket names vary per customer.
+                      - Sid: DenyDataReads
+                        Effect: Deny
+                        Action:
+                          - "secretsmanager:GetSecretValue"
+                          - "ssm:GetParameter"
+                          - "ssm:GetParameters"
+                          - "ssm:GetParametersByPath"
+                          - "ssm:GetParameterHistory"
+                          - "dynamodb:GetItem"
+                          - "dynamodb:BatchGetItem"
+                          - "dynamodb:Query"
+                          - "dynamodb:Scan"
+                          - "dynamodb:PartiQLSelect"
+                          - "dynamodb:GetRecords"
+                          - "sqs:ReceiveMessage"
+                          - "kinesis:GetRecords"
+                          - "kinesis:GetShardIterator"
+                          - "ec2:GetPasswordData"
+                          - "ec2:GetConsoleOutput"
+                          - "ec2:GetConsoleScreenshot"
+                          - "codecommit:GetFile"
+                          - "codecommit:GetBlob"
+                          - "ecr:BatchGetImage"
+                          - "ecr:GetDownloadUrlForLayer"
+                          - "lambda:GetFunction"
+                        Resource: "*"
+                - PolicyName: SentasityResourceExplorerInventory
+                  PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      # Create-only: turns on Resource Explorer, like the console's Turn on button.
+                      - Sid: ResourceExplorerInventory
+                        Effect: Allow
+                        Action:
+                          - resource-explorer-2:CreateIndex
+                          - resource-explorer-2:CreateView
+                        Resource: "*"
+                      - Sid: ResourceExplorerServiceLinkedRole
+                        Effect: Allow
+                        Action: iam:CreateServiceLinkedRole
+                        Resource: "arn:aws:iam::*:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+                        Condition:
+                          StringEquals:
+                            iam:AWSServiceName: resource-explorer-2.amazonaws.com
               Tags:
                 - Key: "ManagedBy"
                   Value: "Sentasity-CloudFormation"
@@ -307,21 +500,26 @@ Resources:
                   Value: "Cost and usage data access"
         Outputs:
           ViewOnlyRoleArn:
-            Description: "ARN of the Sentasity ViewOnly security scanning role"
+            Description: "Security scanning role ARN"
             Value: !GetAtt SentasityViewOnlySecurityRole.Arn
           ReadOnlyRoleArn:
-            Description: "ARN of the Sentasity ReadOnly cost data role"
+            Description: "Cost data role ARN"
             Value: !GetAtt SentasityReadOnlyRole.Arn
 
 Outputs:
+  # Bump on every template change; the daily stack sync reads it.
+  TemplateVersion:
+    Description: "Template version"
+    Value: "3"
+
   ViewOnlyRoleArn:
-    Description: "ARN of the Sentasity ViewOnly security scanning role (management account)"
+    Description: "Security scanning role ARN (management account)"
     Value: !GetAtt SentasityViewOnlySecurityRole.Arn
 
   ReadOnlyRoleArn:
-    Description: "ARN of the Sentasity ReadOnly cost data role (management account)"
+    Description: "Cost data role ARN (management account)"
     Value: !GetAtt SentasityReadOnlyRole.Arn
 
   StackSetId:
-    Description: "ID of the StackSet deploying roles to member accounts"
+    Description: "Member-account StackSet ID"
     Value: !Ref SentasityAccessStackSet

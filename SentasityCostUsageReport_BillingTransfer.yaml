@@ -1,0 +1,191 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Sentasity CUR 1.0 reports for one billing transfer customer. Deploy in us-east-1 from the bill transfer account."
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Customer"
+        Parameters:
+          - CustomerAccountId
+      - Label:
+          default: "Billing transfer views (leave blank to skip a report)"
+        Parameters:
+          - MyViewArn
+          - ShowbackViewArn
+    ParameterLabels:
+      CustomerAccountId:
+        default: "Customer management account ID"
+      MyViewArn:
+        default: "My view ARN (your cost)"
+      ShowbackViewArn:
+        default: "Showback/chargeback view ARN (customer price)"
+
+Parameters:
+  CustomerAccountId:
+    Type: String
+    Description: "The customer organization's management account ID."
+    AllowedPattern: ^[0-9]{12}$
+    ConstraintDescription: "Must be a 12-digit AWS account ID."
+
+  MyViewArn:
+    Type: String
+    Description: "My view ARN. Blank skips this report."
+    Default: ""
+    AllowedPattern: ^$|^arn:aws:billing::[0-9]{12}:billingview/billing-transfer-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    ConstraintDescription: "Blank or a My view ARN."
+
+  ShowbackViewArn:
+    Type: String
+    Description: "Showback view ARN. Blank skips this report."
+    Default: ""
+    AllowedPattern: ^$|^arn:aws:billing::[0-9]{12}:billingview/billing-transfer-showback-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+    ConstraintDescription: "Blank or a Showback view ARN."
+
+Rules:
+  MustBeUsEast1:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", us-east-1]
+        AssertDescription: "CUR report definitions can only be created in us-east-1."
+  AtLeastOneView:
+    Assertions:
+      - Assert: !Or
+          - !Not [!Equals [!Ref MyViewArn, ""]]
+          - !Not [!Equals [!Ref ShowbackViewArn, ""]]
+        AssertDescription: "Provide at least one billing view ARN."
+
+Conditions:
+  HasMyView: !Not [!Equals [!Ref MyViewArn, ""]]
+  HasShowback: !Not [!Equals [!Ref ShowbackViewArn, ""]]
+
+Resources:
+  # Retained: the reports are the customer's billing history.
+  CURBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "sentasity-cur-transfer-${AWS::AccountId}-${CustomerAccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  CURBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref CURBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # AWS's default CUR bucket policy.
+          - Sid: AllowCURServiceOwnershipCheck
+            Effect: Allow
+            Principal:
+              Service: billingreports.amazonaws.com
+            Action:
+              - s3:GetBucketAcl
+              - s3:GetBucketPolicy
+            Resource: !GetAtt CURBucket.Arn
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref "AWS::AccountId"
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:cur:us-east-1:${AWS::AccountId}:definition/*"
+          - Sid: AllowCURServicePutObject
+            Effect: Allow
+            Principal:
+              Service: billingreports.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${CURBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref "AWS::AccountId"
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:cur:us-east-1:${AWS::AccountId}:definition/*"
+
+  MyViewReport:
+    Type: AWS::CUR::ReportDefinition
+    Condition: HasMyView
+    DependsOn: CURBucketPolicy
+    Properties:
+      ReportName: !Sub "sentasity-transfer-${CustomerAccountId}-my-view"
+      BillingViewArn: !Ref MyViewArn
+      TimeUnit: HOURLY
+      Format: Parquet
+      Compression: Parquet
+      AdditionalSchemaElements:
+        - RESOURCES
+      S3Bucket: !Ref CURBucket
+      S3Prefix: cur
+      S3Region: us-east-1
+      ReportVersioning: OVERWRITE_REPORT
+      RefreshClosedReports: true
+
+  # No split cost allocation data: AWS does not allow it on showback views.
+  ShowbackReport:
+    Type: AWS::CUR::ReportDefinition
+    Condition: HasShowback
+    DependsOn: CURBucketPolicy
+    Properties:
+      ReportName: !Sub "sentasity-transfer-${CustomerAccountId}-showback"
+      BillingViewArn: !Ref ShowbackViewArn
+      TimeUnit: HOURLY
+      Format: Parquet
+      Compression: Parquet
+      AdditionalSchemaElements:
+        - RESOURCES
+      S3Bucket: !Ref CURBucket
+      S3Prefix: cur
+      S3Region: us-east-1
+      ReportVersioning: OVERWRITE_REPORT
+      RefreshClosedReports: true
+
+Outputs:
+  # Bump on every template change; the daily stack sync reads it.
+  TemplateVersion:
+    Description: "Template version"
+    Value: "3"
+
+  BucketName:
+    Value: !Ref CURBucket
+    Description: "CUR bucket"
+
+  ReportPrefix:
+    Value: cur
+    Description: "CUR S3 prefix"
+
+  AccountId:
+    Value: !Ref "AWS::AccountId"
+    Description: "Bucket account ID"
+
+  CustomerAccountId:
+    Value: !Ref CustomerAccountId
+    Description: "Customer management account ID"
+
+  MyViewReportName:
+    Condition: HasMyView
+    Value: !Sub "sentasity-transfer-${CustomerAccountId}-my-view"
+    Description: "My view report name"
+
+  MyViewArn:
+    Condition: HasMyView
+    Value: !Ref MyViewArn
+    Description: "My view ARN"
+
+  ShowbackReportName:
+    Condition: HasShowback
+    Value: !Sub "sentasity-transfer-${CustomerAccountId}-showback"
+    Description: "Showback report name"
+
+  ShowbackViewArn:
+    Condition: HasShowback
+    Value: !Ref ShowbackViewArn
+    Description: "Showback view ARN"

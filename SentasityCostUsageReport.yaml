@@ -1,8 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: |
-  Sentasity Cost and Usage Report (CUR 1.0, Parquet)
-  Creates an S3 bucket and CUR report configured for the Sentasity cost analysis pipeline.
-  IMPORTANT: Must be deployed in us-east-1 (AWS requirement for CUR report definitions).
+Description: "Sentasity CUR 1.0 (Parquet) bucket and report. Deploy in us-east-1."
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -18,10 +15,10 @@ Metadata:
 Parameters:
   ReportName:
     Type: String
-    Description: "Name for the Cost and Usage Report. Becomes part of the S3 path and manifest filename."
+    Description: "CUR report name; part of the S3 path."
     Default: "sentasity-cur"
     AllowedPattern: ^[a-zA-Z0-9][a-zA-Z0-9\-]{0,253}[a-zA-Z0-9]$
-    ConstraintDescription: "Must be 2-255 characters: letters, numbers, and hyphens. Cannot start or end with a hyphen."
+    ConstraintDescription: "2-255 letters, numbers and hyphens; no leading or trailing hyphen."
 
 Resources:
   CURBucket:
@@ -86,18 +83,23 @@ Resources:
       RefreshClosedReports: true
 
 Outputs:
+  # Bump on every template change; the daily stack sync reads it.
+  TemplateVersion:
+    Description: "Template version"
+    Value: "3"
+
   BucketName:
     Value: !Ref CURBucket
-    Description: "S3 bucket name → cur_data_sources.cur_bucket"
+    Description: "CUR bucket"
 
   ReportName:
     Value: !Ref ReportName
-    Description: "CUR report name → cur_data_sources.cur_report_name"
+    Description: "CUR report name"
 
   ReportPrefix:
     Value: cur
-    Description: "S3 prefix → cur_data_sources.cur_prefix"
+    Description: "CUR S3 prefix"
 
   AccountId:
     Value: !Ref "AWS::AccountId"
-    Description: "AWS account ID → cur_data_sources.bucket_account_id"
+    Description: "Bucket account ID"
