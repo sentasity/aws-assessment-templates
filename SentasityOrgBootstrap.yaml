@@ -3,11 +3,20 @@ Description: "Sentasity org discovery role; turns on CloudTrail and StackSets tr
 
 Metadata:
   AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Sentasity access"
+        Parameters:
+          - SentasityExternalId
+      - Label:
+          default: "Wrong-account check"
+        Parameters:
+          - SentasityAccountId
     ParameterLabels:
       SentasityExternalId:
         default: "Sentasity External ID"
       SentasityAccountId:
-        default: "Sentasity account ID"
+        default: "Only create in AWS account (optional)"
 
 Parameters:
   SentasityExternalId:
@@ -20,7 +29,7 @@ Parameters:
     Default: ""
     AllowedPattern: '^(\d{12})?$'
     ConstraintDescription: "Blank, or a 12-digit AWS account ID"
-    Description: "The AWS account this link is for. The Sentasity quick-create link fills it in; when set, CloudFormation refuses to create the stack in any other account."
+    Description: "Sentasity's setup links fill this in, so the stack can't be created in another account by mistake. Leave it blank when updating the stack or deploying by hand."
 
 Rules:
   # A Sentasity quick-create link names the account it is for. Opened while
@@ -30,7 +39,7 @@ Rules:
     RuleCondition: !Not [!Equals [!Ref SentasityAccountId, ""]]
     Assertions:
       - Assert: !Equals [!Ref SentasityAccountId, !Ref "AWS::AccountId"]
-        AssertDescription: "This link is for the AWS account in Sentasity account ID, not this one. Sign in to that account and open the link again."
+        AssertDescription: "This link is for the AWS account in 'Only create in AWS account', not this one. Sign in to that account and open the link again."
 
 Resources:
 

@@ -58,7 +58,7 @@ A: Only Sentasity's shared services account (`886557787053`), and only when it p
 A: Not through the access templates (1 to 5). Their roles carry AWS-managed read-only policies and supplemental statements limited to `Describe*`, `List*`, and `Get*` actions, with two narrow exceptions described above: the Org Bootstrap's one-time service-access enablement, which flips AWS-side integration switches and touches nothing else, and turning on AWS Resource Explorer. The Managed Services template (6) is the only one whose roles can modify resources, and it exists only if you deploy it.
 
 **Q: What if I open a Sentasity link while signed in to the wrong AWS account?**
-A: The access and Org Bootstrap templates take an optional `SentasityAccountId` parameter. Sentasity's setup links fill it in with the account the link is for, and CloudFormation then refuses to create the stack in any other account, before anything is created. Left blank, as when you deploy a template by hand, nothing is checked.
+A: The access and Org Bootstrap templates have an optional **Only create in AWS account** field (parameter `SentasityAccountId`). Sentasity's setup links fill it in with the account the link is for, and CloudFormation then refuses to create the stack in any other account, before anything is created. Leave it blank when updating a stack or deploying a template by hand; blank checks nothing.
 
 **Q: What data does Sentasity read?**
 A: Billing and cost data, resource configuration metadata, and security posture — the signals needed to price waste and flag risk. See the [Trust Center](https://sentasity.com/trust) for exactly what we store, where it lives, and how tenants are isolated.
